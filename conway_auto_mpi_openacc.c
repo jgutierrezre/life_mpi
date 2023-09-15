@@ -4,14 +4,15 @@
 #include <unistd.h>
 
 #include <mpi.h>
+#include <openacc.h>
 
 #define GRIDSIZE 40
 #define CELLCOUNT GRIDSIZE* GRIDSIZE / 2
 #define SIMULATION_SIZE 200
 #define SIMULATION_SPEED 100000
 
-#define PRINT_GRID 1
-#define PRINT_GRID_EVERY 1
+#define PRINT_GRID 0
+#define PRINT_GRID_EVERY 0
 #define WRITE_GRID 0
 #define WRITE_GRID_EVERY 0
 
@@ -29,6 +30,9 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    int num_devices = acc_get_num_devices(acc_device_nvidia);
+    #pragma acc set device_num(rank % num_devices) device_type(acc_device_nvidia)
+
     unsigned char* grid =
         (unsigned char*)calloc(GRIDSIZE * GRIDSIZE, sizeof(unsigned char));
 
@@ -45,8 +49,8 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        printf("Starting simulation of size %dx%d with %d processes\n",
-               GRIDSIZE, GRIDSIZE, size);
+        printf("Starting simulation of size %dx%d with %d processes and %d GPUs\n",
+               GRIDSIZE, GRIDSIZE, size, num_devices);
         // srand(time(NULL)); // Uncomment this line to get different results
         // every time
         srand(0);  // Start with the same random seed every time
@@ -200,6 +204,7 @@ void determineState(unsigned char* grid, int height, int width) {
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
     // First pass to calculate new state
+    #pragma acc parallel loop copy(grid[0:height*width])
     for (int a = 1; a < height - 1; a++) {
         for (int b = 0; b < width; b++) {
             int alive = 0;
@@ -225,6 +230,7 @@ void determineState(unsigned char* grid, int height, int width) {
     }
 
     // Second pass to normalize state back to 0 and 1
+    #pragma acc parallel loop copy(grid[0:height*width])
     for (int a = start; a < end; a++) {
         for (int b = 0; b < width; b++) {
             // Shift to get the new state into the least significant bit
